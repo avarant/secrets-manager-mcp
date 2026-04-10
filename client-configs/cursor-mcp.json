@@ -1,0 +1,18 @@
+{
+  "_comment": "Cursor ~/.cursor/mcp.json",
+  "_comment2": "Cursor's native OAuth flow may break on RFC 8414 discovery (known Cursor bug).",
+  "_comment3": "mcp-remote@0.1.16+ works around this — pin exactly to avoid CVE-2025-6514.",
+  "_comment4": "CVE-2025-6514 (CVSS 9.6): command injection via malicious authorization_endpoint in mcp-remote < 0.1.16.",
+  "_comment5": "On first connect a browser window opens for Okta login. Tokens cached in ~/.mcp-auth/",
+  "mcpServers": {
+    "secrets-manager": {
+      "command": "npx",
+      "args": [
+        "mcp-remote@0.1.16",
+        "https://YOUR_API_ID.execute-api.YOUR_REGION.amazonaws.com/mcp",
+        "--static-oauth-client-info",
+        "{\"client_id\":\"YOUR_OKTA_CLIENT_ID\"}"
+      ]
+    }
+  }
+}

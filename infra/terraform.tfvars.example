@@ -1,0 +1,16 @@
+# ── Option A: Cognito (for testing while waiting for Okta) ────────────────────
+# Copy to terraform.tfvars and run:  terraform apply
+
+aws_region  = "us-east-1"
+use_cognito = true
+
+# cognito_domain_prefix = "secrets-mcp-myorg"  # Uncomment if default is taken
+
+
+# ── Option B: Okta (production) ───────────────────────────────────────────────
+# Once IT creates the Okta app, update terraform.tfvars to:
+
+# aws_region    = "us-east-1"
+# use_cognito   = false
+# okta_issuer   = "https://your-tenant.okta.com/oauth2/aus1xxxxxxxxx"
+# okta_audience = "api://secrets-mcp"

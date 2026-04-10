@@ -1,0 +1,25 @@
+# Terraform
+infra/.terraform/
+infra/.terraform.lock.hcl
+infra/terraform.tfvars
+infra/terraform.tfstate
+infra/terraform.tfstate.backup
+infra/.build/
+infra/*.zip
+
+# Secrets / credentials
+cognito_password.txt
+*.pem
+*.key
+.env
+.env.*
+!.env.example
+
+# Claude Code
+.claude/
+
+# Client config with real endpoint URLs (use client-configs/ templates instead)
+.mcp.json
+
+# macOS
+.DS_Store

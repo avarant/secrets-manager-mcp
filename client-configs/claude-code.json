@@ -1,0 +1,15 @@
+{
+  "_comment": "Claude Code remote MCP config. Place in project .mcp.json or add to ~/.claude.json mcpServers.",
+  "_comment2": "Replace MCP_ENDPOINT with the 'McpEndpoint' CDK output value.",
+  "_comment3": "On first use, Claude Code will open a browser for Okta login and cache the token.",
+  "mcpServers": {
+    "secrets-manager": {
+      "type": "http",
+      "url": "https://YOUR_API_ID.execute-api.YOUR_REGION.amazonaws.com/mcp",
+      "auth": {
+        "type": "oauth",
+        "pkce": true
+      }
+    }
+  }
+}

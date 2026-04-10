@@ -1,0 +1,4 @@
+# Lambda deployment requirements — excludes boto3/botocore (provided by Lambda runtime).
+# Use server/requirements.txt for local development.
+mcp>=1.6.0
+mangum>=0.19.0
