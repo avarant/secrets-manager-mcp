@@ -296,7 +296,7 @@ async def oauth_authorization_server(request: Request) -> JSONResponse:
     base = _base_url(request)
     return JSONResponse(
         {
-            "issuer": base,
+            "issuer": os.environ["OAUTH_ISSUER"],
             "authorization_endpoint":        os.environ["OAUTH_AUTHORIZATION_ENDPOINT"],
             "token_endpoint":                os.environ["OAUTH_TOKEN_ENDPOINT"],
             "jwks_uri":                      os.environ["OAUTH_JWKS_URI"],
