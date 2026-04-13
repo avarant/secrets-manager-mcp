@@ -29,14 +29,29 @@ All AgentCore Terraform resources (`bedrock_agentcore.tf`) and the Lambda file (
 
 ## Secret Value Entry: MCP Elicitation URL Mode
 
+**References:**
+- [MCP elicitation spec (draft)](https://modelcontextprotocol.io/specification/draft/client/elicitation)
+- [Python SDK elicitation example](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/elicitation.py)
+
 ### What the spec says
 
 MCP spec 2025-11-25 defines two elicitation modes:
 
-- **Form mode** (`ctx.elicit(schema=...)`) — server sends a JSON schema, client renders an inline form, response travels back through the MCP protocol. **Spec explicitly prohibits this for passwords/API keys.**
-- **URL mode** (`ctx.elicit_url(url=...)`) — server sends a URL, client opens it in the browser, user interacts with a page hosted by the server. Value never enters the MCP protocol.
+- **Form mode** (`ctx.elicit(schema=...)`) — server sends a JSON schema, client renders an inline form, the user's response travels back through the MCP protocol as a JSON-RPC message. The spec explicitly prohibits this for passwords/API keys.
+- **URL mode** (`ctx.elicit_url(url=...)`) — server sends a URL, client opens it in the browser, user interacts with a page hosted by the server. The value never enters the MCP protocol.
 
 The Python SDK (v1.27.0) implements both: `ctx.elicit()` for form mode and `ctx.elicit_url()` for URL mode, plus `session.send_elicit_complete()` to notify the client when the out-of-band action completes.
+
+### Why form mode is not acceptable for secrets
+
+With form mode the value is present in the JSON-RPC `elicitation/response` message. Even though it's encrypted in transit (HTTPS), it surfaces in several places:
+
+- **MCP client logs** — clients log MCP traffic; the elicitation response containing the value appears there
+- **Client process memory** — the client holds the value between receiving the form submission and forwarding it to the server
+- **Proxy/debugging tools** — enterprise proxies (mitmproxy, Charles) that terminate TLS would see the value in the decrypted JSON body
+- **Client implementation trust** — you're trusting that the closed-source client doesn't store or forward the value; this can't be verified
+
+URL mode avoids all of this: the value goes browser → server via a direct HTTPS POST and never appears in any MCP message.
 
 ### What clients actually support (as of April 2026)
 
@@ -51,6 +66,8 @@ URL mode is in the spec and the SDK but neither Claude Code nor Cursor have ship
 ### What we implemented instead
 
 `create_secret` and `update_secret` return a one-time URL. The user opens it manually in their browser. The form POSTs directly to App Runner, which calls Secrets Manager. The secret value never passes through Claude or the MCP protocol.
+
+This achieves the same security properties as URL mode elicitation — the only thing missing is the client automatically opening the browser and showing an inline Accept/Decline prompt.
 
 A `finalize_secret(token)` tool was added at one point to let Claude confirm the operation completed, but was later removed — the form POST handler can call Secrets Manager directly and show the result on the success page, with no second tool call needed.
 

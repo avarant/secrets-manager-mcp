@@ -23,7 +23,7 @@ AWS Secrets Manager
 
 **Auth:** Okta OAuth 2.1 PKCE. The server exposes static DCR (`/register`) returning the pre-configured Okta client ID, so any MCP client can auto-discover and authenticate without manual configuration.
 
-**Secret entry:** `create_secret` and `update_secret` return a one-time URL. The user opens it in their browser, enters the value, and submits. The form POSTs directly to App Runner, which stores it in Secrets Manager. The value is never returned to the MCP client.
+**Secret entry:** `create_secret` and `update_secret` return a one-time URL. The user opens it in their browser, enters the value, and submits. The form POSTs directly to App Runner, which stores it in Secrets Manager. The value is never returned to the MCP client. This replicates the security properties of [MCP URL mode elicitation](https://modelcontextprotocol.io/specification/draft/client/elicitation) — the approach the spec mandates for sensitive values — without requiring client-side support, which no major client has shipped as of April 2026. See `docs/implementation-notes.md` for details.
 
 **Access control:** Secrets can be tagged with `mcp:read_groups` and `mcp:write_groups` (comma-separated Okta group names). Untagged secrets are accessible to all authenticated users.
 
