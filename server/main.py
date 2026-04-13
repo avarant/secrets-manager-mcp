@@ -35,7 +35,7 @@ import jwt as pyjwt
 from jwt import PyJWKClient
 import boto3
 from botocore.exceptions import ClientError
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP, Context
 from mcp.server.transport_security import TransportSecuritySettings
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, Response
@@ -143,19 +143,17 @@ class UserContextMiddleware:
         await self.app(scope, receive, send)
 
 
-# ─── URL-mode secret entry stores ─────────────────────────────────────────────
-# Two-phase approach: create_secret/update_secret return a URL and token
-# immediately. The browser form POSTs the value to /secret-entry/{token},
-# stored in _completed. finalize_secret(token) reads it and commits to AWS.
+# ─── Secret entry store ───────────────────────────────────────────────────────
+# create_secret/update_secret return a one-time URL. The user opens it in their
+# browser, enters the value, and submits. The form POST handler calls Secrets
+# Manager directly — the value never passes through Claude or the MCP protocol.
 #
-# Single-instance App Runner (max_size=1) keeps both dicts in the same process.
+# Single-instance App Runner (max_size=1) keeps this dict in the same process.
 
 _ENTRY_TIMEOUT = 300  # seconds before a pending token expires
 
 # token → operation metadata (op, name/secret_id, description, tags, expires_at)
 _pending_ops: dict[str, dict] = {}
-# token → submitted secret value (cleared immediately after finalize)
-_completed: dict[str, str] = {}
 
 
 # ─── MCP Server & Tools ───────────────────────────────────────────────────────
@@ -307,18 +305,18 @@ def describe_secret(secret_id: str) -> dict:
 
 
 @mcp.tool()
-def create_secret(
+async def create_secret(
     name: str,
+    ctx: Context,
     description: str = "",
     tags: Optional[dict[str, str]] = None,
 ) -> dict:
     """
-    Begin creating a new secret in AWS Secrets Manager.
+    Create a new secret in AWS Secrets Manager.
 
-    Returns a one-time URL for entering the secret value in a secure browser form.
-    The value never passes through the LLM or the MCP protocol.
-
-    After the user submits the form, call finalize_secret(token) to commit.
+    Returns a one-time URL. Open it in a browser, enter the secret value, and
+    submit — the value is saved immediately and never passes through the LLM
+    or the MCP protocol.
 
     Args:
         name: Unique secret name (use / for namespacing, e.g. 'prod/myapp/db').
@@ -326,7 +324,7 @@ def create_secret(
         tags: Optional key/value tags (e.g. mcp:read_groups, mcp:write_groups).
 
     Returns:
-        Object with 'status', 'entry_url', 'token', and 'next_step'.
+        Object with 'entry_url' to open in a browser.
     """
     token = _secrets_mod.token_urlsafe(32)
     base_url = _base_url_ctx.get()
@@ -338,33 +336,56 @@ def create_secret(
         "tags": tags,
         "expires_at": time.time() + _ENTRY_TIMEOUT,
     }
-    return {
-        "status": "awaiting_value",
-        "entry_url": entry_url,
-        "token": token,
-        "next_step": f"Open the entry_url in a browser to enter the secret value, then call finalize_secret(token='{token}').",
-    }
+
+    # Prefer URL mode elicitation (MCP spec 2025-11-25) — client opens the
+    # browser automatically and shows Accept/Decline inline. Falls back to
+    # returning the URL when the client doesn't support it (Claude Code,
+    # Cursor as of April 2026).
+    try:
+        result = await ctx.elicit_url(
+            message=f"Enter the secret value for '{name}' in the secure browser form, then click Accept.",
+            url=entry_url,
+            elicitation_id=token,
+        )
+    except Exception as e:
+        if "does not support" in str(e) or "URL-mode" in str(e):
+            return {
+                "entry_url": entry_url,
+                "message": f"Open the URL in a browser, enter the value for '{name}', and submit. The secret will be saved immediately.",
+            }
+        _pending_ops.pop(token, None)
+        raise
+
+    if result.action != "accept":
+        _pending_ops.pop(token, None)
+        raise ValueError("Secret creation cancelled.")
+
+    if token in _pending_ops:
+        _pending_ops.pop(token, None)
+        raise ValueError("Form not yet submitted. Please enter the value at the URL before clicking Accept.")
+
+    return {"status": "created", "message": f"Secret '{name}' has been saved."}
 
 
 @mcp.tool()
-def update_secret(
+async def update_secret(
     secret_id: str,
+    ctx: Context,
     description: Optional[str] = None,
 ) -> dict:
     """
-    Begin updating the value of an existing secret.
+    Update the value of an existing secret.
 
-    Returns a one-time URL for entering the new value in a secure browser form.
-    The value never passes through the LLM or the MCP protocol.
-
-    After the user submits the form, call finalize_secret(token) to commit.
+    Returns a one-time URL. Open it in a browser, enter the new value, and
+    submit — the value is saved immediately and never passes through the LLM
+    or the MCP protocol.
 
     Args:
         secret_id: Secret name or full ARN.
         description: If provided, also updates the description.
 
     Returns:
-        Object with 'status', 'entry_url', 'token', and 'next_step'.
+        Object with 'entry_url' to open in a browser.
     """
     try:
         meta = _sm().describe_secret(SecretId=secret_id)
@@ -383,62 +404,31 @@ def update_secret(
         "description": description,
         "expires_at": time.time() + _ENTRY_TIMEOUT,
     }
-    return {
-        "status": "awaiting_value",
-        "entry_url": entry_url,
-        "token": token,
-        "next_step": f"Open the entry_url in a browser to enter the new value, then call finalize_secret(token='{token}').",
-    }
 
-
-@mcp.tool()
-def finalize_secret(token: str) -> dict:
-    """
-    Complete a pending secret creation or update.
-
-    Call this after the user has submitted the secret value via the browser form
-    returned by create_secret or update_secret.
-
-    Args:
-        token: The token returned by create_secret or update_secret.
-
-    Returns:
-        Object with 'name', 'arn', 'version_id'.
-    """
-    op = _pending_ops.pop(token, None)
-    if op is None:
-        raise ValueError("Invalid or expired token. Please call create_secret or update_secret again.")
-    if time.time() > op["expires_at"]:
-        _completed.pop(token, None)
-        raise ValueError("Token expired (5 minutes). Please start over.")
-
-    value = _completed.pop(token, None)
-    if value is None:
-        # Put the op back so the user can try again after submitting the form
-        _pending_ops[token] = op
-        raise ValueError("Secret value not yet submitted. Please complete the browser form first, then call finalize_secret again.")
-
-    if op["op"] == "create":
-        kwargs: dict = {"Name": op["name"], "SecretString": value}
-        if op["description"]:
-            kwargs["Description"] = op["description"]
-        if op["tags"]:
-            kwargs["Tags"] = [{"Key": k, "Value": v} for k, v in op["tags"].items()]
-        try:
-            resp = _sm().create_secret(**kwargs)
-        except ClientError as e:
-            raise ValueError(f"AWS error creating secret: {e.response['Error']['Message']}") from e
-        return {"name": resp["Name"], "arn": resp["ARN"], "version_id": resp["VersionId"]}
-
-    # op == "update"
-    kwargs = {"SecretId": op["secret_id"], "SecretString": value}
-    if op["description"] is not None:
-        kwargs["Description"] = op["description"]
     try:
-        resp = _sm().update_secret(**kwargs)
-    except ClientError as e:
-        raise ValueError(f"AWS error updating secret: {e.response['Error']['Message']}") from e
-    return {"name": resp["Name"], "arn": resp["ARN"], "version_id": resp["VersionId"]}
+        result = await ctx.elicit_url(
+            message=f"Enter the new value for '{secret_id}' in the secure browser form, then click Accept.",
+            url=entry_url,
+            elicitation_id=token,
+        )
+    except Exception as e:
+        if "does not support" in str(e) or "URL-mode" in str(e):
+            return {
+                "entry_url": entry_url,
+                "message": f"Open the URL in a browser, enter the new value for '{secret_id}', and submit. The secret will be updated immediately.",
+            }
+        _pending_ops.pop(token, None)
+        raise
+
+    if result.action != "accept":
+        _pending_ops.pop(token, None)
+        raise ValueError("Secret update cancelled.")
+
+    if token in _pending_ops:
+        _pending_ops.pop(token, None)
+        raise ValueError("Form not yet submitted. Please enter the value at the URL before clicking Accept.")
+
+    return {"status": "updated", "message": f"Secret '{secret_id}' has been updated."}
 
 
 @mcp.tool()
@@ -594,15 +584,29 @@ _DONE_HTML = """\
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Secret stored</title>
+  <title>Secret saved</title>
   <style>
     body {{ font-family: system-ui, sans-serif; max-width: 480px; margin: 80px auto; padding: 0 24px; color: #1a1a1a; }}
     h2   {{ color: #1a7a3a; }}
+    code {{ background: #f4f4f4; padding: 2px 6px; border-radius: 4px; font-size: 0.9rem; }}
   </style>
 </head>
 <body>
-  <h2>✓ Secret stored</h2>
+  <h2>✓ Secret saved</h2>
+  <p><code>{name}</code></p>
   <p>You can close this tab.</p>
+</body>
+</html>
+"""
+
+_ERROR_HTML = """\
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Error</title></head>
+<body style="font-family:system-ui;max-width:480px;margin:80px auto;padding:0 24px">
+  <h2 style="color:#b00">Error saving secret</h2>
+  <p>{message}</p>
+  <p>Close this tab and retry the operation.</p>
 </body>
 </html>
 """
@@ -613,14 +617,14 @@ _EXPIRED_HTML = """\
 <head><meta charset="utf-8"><title>Link expired</title></head>
 <body style="font-family:system-ui;max-width:480px;margin:80px auto;padding:0 24px">
   <h2>Link expired or invalid</h2>
-  <p>This link has already been used or has expired. Please retry the operation in Claude Code.</p>
+  <p>This link has already been used or has expired. Please retry the operation.</p>
 </body>
 </html>
 """
 
 
 async def secret_entry(request: Request) -> Response:
-    """GET: serve the password form. POST: store submitted value for finalize_secret."""
+    """GET: serve the password form. POST: save to Secrets Manager immediately."""
     token = request.path_params["token"]
 
     op = _pending_ops.get(token)
@@ -631,14 +635,32 @@ async def secret_entry(request: Request) -> Response:
         title = _html.escape(request.query_params.get("name", "secret"))
         return HTMLResponse(_FORM_HTML.format(title=f"Enter value for <em>{title}</em>"))
 
-    # POST — store the submitted value; finalize_secret() will pick it up
+    # POST — call Secrets Manager directly, show result on page
     form = await request.form()
     value = str(form.get("value", ""))
     if not value:
         return HTMLResponse("Value cannot be empty.", status_code=400)
 
-    _completed[token] = value
-    return HTMLResponse(_DONE_HTML)
+    _pending_ops.pop(token, None)  # consume immediately — one-time use
+
+    try:
+        if op["op"] == "create":
+            kwargs: dict = {"Name": op["name"], "SecretString": value}
+            if op["description"]:
+                kwargs["Description"] = op["description"]
+            if op["tags"]:
+                kwargs["Tags"] = [{"Key": k, "Value": v} for k, v in op["tags"].items()]
+            resp = _sm().create_secret(**kwargs)
+        else:
+            kwargs = {"SecretId": op["secret_id"], "SecretString": value}
+            if op["description"] is not None:
+                kwargs["Description"] = op["description"]
+            resp = _sm().update_secret(**kwargs)
+    except ClientError as e:
+        msg = _html.escape(e.response["Error"]["Message"])
+        return HTMLResponse(_ERROR_HTML.format(message=msg), status_code=500)
+
+    return HTMLResponse(_DONE_HTML.format(name=_html.escape(resp["Name"])))
 
 
 # ─── ASGI Application ────────────────────────────────────────────────────────
