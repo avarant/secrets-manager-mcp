@@ -1,12 +1,52 @@
-output "mcp_endpoint" {
-  description = "MCP server URL — use this in your .mcp.json / mcp.json"
-  value       = "${trimsuffix(aws_apigatewayv2_stage.default.invoke_url, "/")}/mcp"
+locals {
+  app_runner_url = "https://${aws_apprunner_service.this.service_url}"
+  mcp_endpoint   = "${local.app_runner_url}/mcp"
 }
 
-output "oauth_metadata_url" {
-  description = "RFC 9728 protected resource metadata — MCP clients auto-discover this"
-  value       = "${trimsuffix(aws_apigatewayv2_stage.default.invoke_url, "/")}/.well-known/oauth-protected-resource"
+output "mcp_endpoint" {
+  description = "MCP server URL — use this in your .mcp.json / mcp.json"
+  value       = local.mcp_endpoint
 }
+
+output "app_runner_url" {
+  description = "App Runner base URL"
+  value       = local.app_runner_url
+}
+
+# ── Ready-to-use client configs ───────────────────────────────────────────────
+
+output "claude_code_mcp_json" {
+  description = "Paste into your project .mcp.json or ~/.claude.json mcpServers"
+  value = jsonencode({
+    mcpServers = {
+      secrets-manager = {
+        type = "http"
+        url  = local.mcp_endpoint
+        auth = {
+          type = "oauth"
+          pkce = true
+        }
+      }
+    }
+  })
+}
+
+output "cursor_mcp_json" {
+  description = "Paste into ~/.cursor/mcp.json"
+  value = jsonencode({
+    mcpServers = {
+      secrets-manager = {
+        command = "npx"
+        args = [
+          "mcp-remote@0.1.38",
+          local.mcp_endpoint,
+        ]
+      }
+    }
+  })
+}
+
+# ── OAuth metadata ────────────────────────────────────────────────────────────
 
 output "oauth_issuer" {
   description = "Active OAuth 2.0 authorization server issuer URL"
@@ -21,20 +61,16 @@ output "oauth_audience" {
 # ── Cognito-specific outputs (only populated when use_cognito=true) ───────────
 
 output "cognito_user_pool_id" {
-  description = "Cognito User Pool ID. Create test users: aws cognito-idp admin-create-user --user-pool-id <id> --username user@example.com"
+  description = "Cognito User Pool ID"
   value       = local.cognito_pool_id
 }
 
 output "cognito_client_id" {
-  description = "Cognito App Client ID — use this as client_id in cursor-mcp.json"
+  description = "Cognito App Client ID"
   value       = local.cognito_client_id
 }
 
 output "cognito_hosted_ui" {
-  description = "Cognito hosted UI base URL (authorization endpoint)"
+  description = "Cognito hosted UI base URL"
   value       = local.cognito_hosted_ui
-}
-
-output "lambda_function_name" {
-  value = aws_lambda_function.this.function_name
 }

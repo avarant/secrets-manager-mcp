@@ -84,8 +84,10 @@ resource "aws_cognito_user_pool_client" "this" {
   ]
 
   callback_urls = [
-    "http://localhost:3334/oauth/callback", # mcp-remote
-    "http://localhost:3000/callback",       # Claude Code native OAuth
+    "http://localhost:3334/oauth/callback", # mcp-remote (--callback-port 3334)
+    "http://localhost:3334/callback",
+    "http://localhost:3000/oauth/callback", # Claude Code (callbackPort: 3000)
+    "http://localhost:3000/callback",
   ]
 
   supported_identity_providers = ["COGNITO"]

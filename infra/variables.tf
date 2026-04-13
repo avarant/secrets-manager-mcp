@@ -4,6 +4,12 @@ variable "aws_region" {
   description = "AWS region to deploy into."
 }
 
+variable "docker_platform" {
+  type        = string
+  default     = "linux/amd64"
+  description = "Container platform to build for App Runner. Use linux/amd64 unless you have explicitly configured a compatible runtime architecture."
+}
+
 # ── Auth provider ─────────────────────────────────────────────────────────────
 
 variable "use_cognito" {
