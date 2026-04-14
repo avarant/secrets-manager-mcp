@@ -35,7 +35,7 @@ import jwt as pyjwt
 from jwt import PyJWKClient
 import boto3
 from botocore.exceptions import ClientError
-from mcp.server.fastmcp import FastMCP, Context
+from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, Response
@@ -305,9 +305,8 @@ def describe_secret(secret_id: str) -> dict:
 
 
 @mcp.tool()
-async def create_secret(
+def create_secret(
     name: str,
-    ctx: Context,
     description: str = "",
     tags: Optional[dict[str, str]] = None,
 ) -> dict:
@@ -336,41 +335,15 @@ async def create_secret(
         "tags": tags,
         "expires_at": time.time() + _ENTRY_TIMEOUT,
     }
-
-    # Prefer URL mode elicitation (MCP spec 2025-11-25) — client opens the
-    # browser automatically and shows Accept/Decline inline. Falls back to
-    # returning the URL when the client doesn't support it (Claude Code,
-    # Cursor as of April 2026).
-    try:
-        result = await ctx.elicit_url(
-            message=f"Enter the secret value for '{name}' in the secure browser form, then click Accept.",
-            url=entry_url,
-            elicitation_id=token,
-        )
-    except Exception as e:
-        if "does not support" in str(e) or "URL-mode" in str(e):
-            return {
-                "entry_url": entry_url,
-                "message": f"Open the URL in a browser, enter the value for '{name}', and submit. The secret will be saved immediately.",
-            }
-        _pending_ops.pop(token, None)
-        raise
-
-    if result.action != "accept":
-        _pending_ops.pop(token, None)
-        raise ValueError("Secret creation cancelled.")
-
-    if token in _pending_ops:
-        _pending_ops.pop(token, None)
-        raise ValueError("Form not yet submitted. Please enter the value at the URL before clicking Accept.")
-
-    return {"status": "created", "message": f"Secret '{name}' has been saved."}
+    return {
+        "entry_url": entry_url,
+        "message": f"Open the URL in a browser, enter the value for '{name}', and submit. The secret will be saved immediately.",
+    }
 
 
 @mcp.tool()
-async def update_secret(
+def update_secret(
     secret_id: str,
-    ctx: Context,
     description: Optional[str] = None,
 ) -> dict:
     """
@@ -404,31 +377,10 @@ async def update_secret(
         "description": description,
         "expires_at": time.time() + _ENTRY_TIMEOUT,
     }
-
-    try:
-        result = await ctx.elicit_url(
-            message=f"Enter the new value for '{secret_id}' in the secure browser form, then click Accept.",
-            url=entry_url,
-            elicitation_id=token,
-        )
-    except Exception as e:
-        if "does not support" in str(e) or "URL-mode" in str(e):
-            return {
-                "entry_url": entry_url,
-                "message": f"Open the URL in a browser, enter the new value for '{secret_id}', and submit. The secret will be updated immediately.",
-            }
-        _pending_ops.pop(token, None)
-        raise
-
-    if result.action != "accept":
-        _pending_ops.pop(token, None)
-        raise ValueError("Secret update cancelled.")
-
-    if token in _pending_ops:
-        _pending_ops.pop(token, None)
-        raise ValueError("Form not yet submitted. Please enter the value at the URL before clicking Accept.")
-
-    return {"status": "updated", "message": f"Secret '{secret_id}' has been updated."}
+    return {
+        "entry_url": entry_url,
+        "message": f"Open the URL in a browser, enter the new value for '{secret_id}', and submit. The secret will be updated immediately.",
+    }
 
 
 @mcp.tool()

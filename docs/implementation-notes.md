@@ -85,6 +85,9 @@ Every MCP client uses a different redirect URI for OAuth callbacks. Each one nee
 | Cursor (mcp-remote) | Random ephemeral port | Broken — port changes on every auth attempt |
 | Cursor native HTTP (v0.48+) | `cursor://anysphere.cursor-mcp/oauth/callback` | Custom OS scheme; requires IT to register the `cursor://` URI |
 | VS Code Copilot | `http://127.0.0.1:33418/` | Must use `127.0.0.1` not `localhost`; trailing slash required |
+| Replit | `https://replit.com/connectors/oauth/callback` | Not published in docs — discovered from the 400 error Okta returns on first auth attempt |
+
+All redirect URIs must be registered in your Okta app. Replit does trigger a full OAuth 2.1 PKCE flow automatically when it detects the `/.well-known/oauth-authorization-server` metadata.
 
 ### Cursor RFC 8414 path-stripping bug
 

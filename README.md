@@ -108,6 +108,23 @@ Create `.vscode/mcp.json` in your workspace:
 
 Register `http://127.0.0.1:33418/` as a redirect URI in your Okta app (note: `127.0.0.1`, not `localhost`; trailing slash required).
 
+### Replit
+
+Add via **replit.com/integrations → MCP Servers → Add MCP server**:
+
+- **MCP Server URL:** `https://<your-app-runner-url>/mcp`
+
+Replit detects the OAuth metadata automatically and triggers a PKCE flow. Register `https://replit.com/connectors/oauth/callback` as a redirect URI in your Okta app.
+
+### Redirect URI summary
+
+| Client | Redirect URI |
+|---|---|
+| Claude Code | `http://localhost:3000/callback` |
+| Cursor native HTTP | `cursor://anysphere.cursor-mcp/oauth/callback` |
+| VS Code Copilot | `http://127.0.0.1:33418/` |
+| Replit | `https://replit.com/connectors/oauth/callback` |
+
 ## MCP Tools
 
 | Tool | Description |

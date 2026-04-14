@@ -42,13 +42,14 @@ The MCP spec defines `ctx.elicit_url()` for this pattern (value stays out of the
 
 The server acts as an OAuth authorization server proxy — it exposes `/.well-known/oauth-authorization-server` pointing at Okta's endpoints, plus a static `/register` DCR endpoint that returns the pre-configured Okta client ID. The actual token issuance and JWKS verification all go through Okta.
 
-Each MCP client uses a different OAuth redirect URI. All must be registered in the Okta app (`YOUR_OKTA_CLIENT_ID`):
+Each MCP client uses a different OAuth redirect URI. All must be registered in your Okta app:
 
 | Client | Redirect URI |
 |---|---|
 | Claude Code | `http://localhost:3000/callback` |
 | Cursor native HTTP | `cursor://anysphere.cursor-mcp/oauth/callback` |
 | VS Code Copilot | `http://127.0.0.1:33418/` |
+| Replit | `https://replit.com/connectors/oauth/callback` |
 
 ## AWS Profile
 
